@@ -10,14 +10,21 @@
 #include <sys/types.h>
 #include <string.h> 
 #include <stdbool.h>
+#include <termios.h>
 
+void getInput();
+bool isCommandCharacter(char);
+bool isArrowKey(char, int*);
+void evaluateArrowKey(int);
+void setupTerminalOS();
+void restoreTerminalOS();
 void changeDirectory(char **);
 bool isChangeDirectoryCommand(char **);
 bool processCommands(char **, char **);
 void printDirectory();
 bool isQuitCommand(char **);
 bool getInputFromUser(char **, char **);
-int * createPipe();
+int *createPipe();
 bool getCommands(char *, char **, char **);
 bool bufferIsValid(char *);
 void childProcess(bool, int *, char **);
@@ -25,21 +32,26 @@ void parentProcess(int, bool, int *, char **);
 void executeCommand(char **);
 void waitForChild(int);
 
+struct termios origConfig;
+
 int main()
 {
 	char *firstCommand[100];
     char *secondCommand[100];
 	bool twoCommands;
 
-	while(1)
+	setupTerminalOS();
+
+	while ( 1 )
 	{
 		printDirectory();
 
-		twoCommands = getInputFromUser(firstCommand, secondCommand);
+		getInput();
 
-		if ( processCommands(firstCommand, secondCommand) )
-			break;
+		//twoCommands = getInputFromUser(firstCommand, secondCommand);
 
+		// if ( processCommands(firstCommand, secondCommand) )
+		// 	break;
 	}   
 
     // char *firstCommand[100];
@@ -56,28 +68,27 @@ int main()
     // else if ( pid < 0 )
     //     perror(NULL);
 
+	restoreTerminalOS();
+
     return 0;
 }
 
-bool processCommands(char **firstCommand, char **secondCommand)
+void setupTerminalOS()
 {
-	if ( isQuitCommand(firstCommand) ) 
-		return true;
+	tcgetattr(0, &origConfig);
 
-	if ( isChangeDirectoryCommand(firstCommand) )
-		changeDirectory(firstCommand);
+	struct termios newConfig = origConfig;
+
+	newConfig.c_lflag &= ~(ICANON | ECHO);
+	newConfig.c_cc[VMIN] = 2;
+	newConfig.c_cc[VTIME] = 1;
+
+	tcsetattr(0, TCSANOW, &newConfig);
 }
 
-void changeDirectory(char **command)
+void restoreTerminalOS()
 {
-	char *newDirectory = (char *)malloc(100 * sizeof(char *));
-	newDirectory = command[1];
-	
-}
-
-bool isChangeDirectoryCommand(char **command)
-{
-	return (strcmp(command[0], "cd") == 0);
+	tcsetattr(0, TCSANOW, &origConfig);
 }
 
 void printDirectory()
@@ -88,9 +99,107 @@ void printDirectory()
 	free(directory);
 }
 
+void getInput()
+{
+	char character;
+	int *arrowKey;
+	while ( character = getchar() )
+	{
+		if ( isCommandCharacter(character) )
+			break;
+		else if ( isArrowKey(character, arrowKey) )
+			evaluateArrowKey(*arrowKey);
+
+		putchar(character);
+	}
+}
+
+bool isCommandCharacter(char character)
+{
+	bool isCommand;	
+	switch ( character )
+	{
+		case '\n':
+			isCommand = true;
+			break;
+		case 127:
+			isCommand = true;
+			break;
+		case 8:
+			isCommand = true;
+			break;
+		default:
+			isCommand = false;
+			break;
+	}
+	return isCommand;
+}	
+
+bool isArrowKey(char character, int *arrowKey)
+{
+	printf("is an arrow key");
+
+	char tempChar = character;
+	if ( tempChar == 27 )
+		tempChar = getchar();
+	if ( tempChar == 91 )
+		tempChar = getchar();
+	
+	if ( tempChar == 68 )
+	{
+		*arrowKey = 68;
+		return true;
+	}
+	else if ( tempChar == 67 )
+	{
+		*arrowKey = 67;
+		return true;
+	}
+	else if ( tempChar == 65 )
+	{
+		*arrowKey = 65;
+		return true;
+	}
+	else if ( tempChar == 66 )
+	{
+		*arrowKey = 66;
+		return true;
+	}
+
+	return false;
+}
+
+void evaluateArrowKey(int arrowkey)
+{
+	printf("this is an arrowkey");
+}
+
+bool processCommands(char **firstCommand, char **secondCommand)
+{
+	if ( isQuitCommand(firstCommand) ) 
+		return true;
+	else if ( isChangeDirectoryCommand(firstCommand) )
+		changeDirectory(firstCommand);
+
+	return false;
+}
+
 bool isQuitCommand(char **command)
 {
 	return (strcmp(command[0], "quit") == 0);
+}
+
+bool isChangeDirectoryCommand(char **command)
+{
+	return (strcmp(command[0], "cd") == 0);
+}
+
+void changeDirectory(char **command)
+{
+	char *newDirectory = (char *)malloc(100 * sizeof(char *));
+	newDirectory = command[1];
+	if ( chdir(newDirectory) < 0 )
+		perror(NULL);
 }
 
 bool getInputFromUser(char **firstCommand, char **secondCommand)
@@ -144,7 +253,7 @@ bool getCommands(char *buffer, char **firstCommand, char **secondCommand)
     return twoCommands;
 }
 
-int * createPipe()
+int *createPipe()
 {
     int *fileDescriptor = (int *)malloc(2 * sizeof(int *));
     if ( pipe(fileDescriptor) < 0)
@@ -197,6 +306,24 @@ void waitForChild(int pid)
         exit(1);
     }
 }
+
+// Configure the input (termios) 
+// while not exited
+// 	print prompt
+// 	read input (break on up, down and \n) 
+// 	if broken on up or down
+// 		clear the current input
+// 		execute appropriate command to generate corresponding message 
+// 		print message
+// 	else
+// 		parse input into a command
+// 		if cd command
+// 			change the current working directory
+// 		else if exit command 
+// 			break
+// 		else
+// 			execute the command 
+// restore the input configuration (termios)
 
 
 
