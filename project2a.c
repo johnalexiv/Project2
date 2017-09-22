@@ -12,16 +12,19 @@
 #include <stdbool.h>
 #include <termios.h>
 
-void getInput();
+int printDirectory();
+int getInput(char *, int);
 bool isCommandCharacter(char);
-bool isArrowKey(char, int*);
-void evaluateArrowKey(int);
+bool isArrowKey(char, int[]);
+int determineWhichArrowKey(char);
+void evaluateArrowKey(int[], char, int *, int);
+bool parseBuffer(char *, char **, char **);
+void executeCommands(bool, char**, char**);
 void setupTerminalOS();
 void restoreTerminalOS();
 void changeDirectory(char **);
 bool isChangeDirectoryCommand(char **);
 bool processCommands(char **, char **);
-void printDirectory();
 bool isQuitCommand(char **);
 bool getInputFromUser(char **, char **);
 int *createPipe();
@@ -34,8 +37,19 @@ void waitForChild(int);
 
 struct termios origConfig;
 
+enum ArrowKeys
+{
+	UP,
+	DOWN,
+	RIGHT,
+	LEFT,
+	NUMOFARROWKEYS
+};
+
 int main()
 {
+	int bufferLength;
+	int directoryLength;
 	char *firstCommand[100];
     char *secondCommand[100];
 	bool twoCommands;
@@ -44,14 +58,20 @@ int main()
 
 	while ( 1 )
 	{
-		printDirectory();
+		directoryLength = printDirectory();
 
-		getInput();
+		char *buffer = (char *)calloc(256, sizeof(char));
+		bufferLength = getInput(buffer, directoryLength);
 
+		twoCommands = parseBuffer(buffer, firstCommand, secondCommand);
 		//twoCommands = getInputFromUser(firstCommand, secondCommand);
 
+		executeCommands(twoCommands, firstCommand, secondCommand);
+		
 		// if ( processCommands(firstCommand, secondCommand) )
-		// 	break;
+		//  	break;
+
+		free(buffer);
 	}   
 
     // char *firstCommand[100];
@@ -91,27 +111,41 @@ void restoreTerminalOS()
 	tcsetattr(0, TCSANOW, &origConfig);
 }
 
-void printDirectory()
+int printDirectory()
 {
     char *directory = (char *)malloc(100 * sizeof(char *));
 	getcwd(directory, 100);
-	printf("%s> ", directory);
+	printf("\n%s> ", directory);
+
+	int directoryLength = strlen(directory);
+
 	free(directory);
+
+	return directoryLength;
 }
 
-void getInput()
+int getInput(char *buffer, int directoryLength)
 {
+	int bufferIndex = 0;
+	int cursorPosition = directoryLength + 1;
 	char character;
-	int *arrowKey;
+	int arrowKey[1];
 	while ( character = getchar() )
 	{
+		cursorPosition++;
 		if ( isCommandCharacter(character) )
 			break;
 		else if ( isArrowKey(character, arrowKey) )
-			evaluateArrowKey(*arrowKey);
-
+		{
+			evaluateArrowKey(arrowKey, character, &cursorPosition, directoryLength);
+			continue;
+		}
+		
 		putchar(character);
+		buffer[bufferIndex++] = character;
 	}
+	buffer[bufferIndex] = '\0';
+	return bufferIndex;
 }
 
 bool isCommandCharacter(char character)
@@ -135,43 +169,78 @@ bool isCommandCharacter(char character)
 	return isCommand;
 }	
 
-bool isArrowKey(char character, int *arrowKey)
+bool isArrowKey(char character, int arrowKey[])
 {
-	printf("is an arrow key");
-
-	char tempChar = character;
-	if ( tempChar == 27 )
-		tempChar = getchar();
-	if ( tempChar == 91 )
-		tempChar = getchar();
-	
-	if ( tempChar == 68 )
+	char checkArrow = character;
+	if ( checkArrow == 27 )
 	{
-		*arrowKey = 68;
-		return true;
+		checkArrow = getchar();
+		if ( checkArrow == 91 )
+		{
+			checkArrow = getchar();
+			arrowKey[0] = determineWhichArrowKey(checkArrow);
+			return true;
+		}
 	}
-	else if ( tempChar == 67 )
-	{
-		*arrowKey = 67;
-		return true;
-	}
-	else if ( tempChar == 65 )
-	{
-		*arrowKey = 65;
-		return true;
-	}
-	else if ( tempChar == 66 )
-	{
-		*arrowKey = 66;
-		return true;
-	}
-
 	return false;
 }
 
-void evaluateArrowKey(int arrowkey)
+int determineWhichArrowKey(char checkArrow)
 {
-	printf("this is an arrowkey");
+	switch( checkArrow )
+	{
+		case 65:
+			return UP;
+		case 66:
+			return DOWN;
+		case 67:
+			return RIGHT;
+		case 68:
+			return LEFT;
+		default:
+			break;
+	}
+	return 0;
+}
+
+void evaluateArrowKey(int arrowKey[], char character, int *cursorPosition, int directoryLength)
+{
+	switch( arrowKey[0] )
+	{
+		case UP:
+			break;
+		case DOWN:
+			break;
+		case RIGHT:
+			putchar(character);
+			cursorPosition++;
+			break;
+		case LEFT:
+			if ( *cursorPosition > directoryLength + 1 )
+			{
+				putchar('\b');
+				cursorPosition--;
+			}
+			break;
+		default:
+			break;
+	}
+}
+
+bool parseBuffer(char *buffer, char **firstCommand, char **secondCommand)
+{
+    return getCommands(buffer, firstCommand, secondCommand);
+}
+
+
+void executeCommands(bool twoCommands, char**firstCommand, char**secondCommand)
+{
+	int *fileDescriptor = createPipe();
+	int pid = fork();
+	if ( pid == 0 )
+	    childProcess(twoCommands, fileDescriptor, firstCommand);
+	else if ( pid > 0 )
+	    parentProcess(pid, twoCommands, fileDescriptor, secondCommand);
 }
 
 bool processCommands(char **firstCommand, char **secondCommand)
