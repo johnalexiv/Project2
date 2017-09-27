@@ -11,9 +11,11 @@
 #include <string.h> 
 #include <stdbool.h>
 #include <termios.h>
+#include <ctype.h>
 
 void setupTerminalOS();
 void restoreTerminalOS();
+void initializeHistory();
 int printDirectory();
 int getInput(char *, int);
 bool isCharacterBackspace(char);
@@ -22,6 +24,8 @@ bool isCharacterArrow(char, int*);
 int determineWhichArrowKey(char);
 void arrowCharacter(int, char, int, int *);
 void updateBuffer(char *, char, int *, int *);
+void addBufferToHistory(char *);
+void shiftBuffersAndAddNewBuffer(char *);
 bool parseBuffer(char *, char **, char **);
 bool getCommands(char *, char **, char **);
 bool processCommands(bool, char **, char **);
@@ -29,11 +33,19 @@ bool isQuitCommand(char **);
 bool isChangeDirectoryCommand(char **);
 void changeDirectory(char **);
 void executeCommands(bool, char**, char**);
+bool exitPrompt();
 int *createPipe();
 void childProcess(bool, int *, char **);
 void parentProcess(int, bool, int *, char **);
 void executeCommand(char **);
 void waitForChild(int);
+
+struct History
+{
+	int index;
+	int length;
+	char *commandHistory[5];
+}history = { 0, 0 };
 
 enum ArrowKeys
 {
@@ -55,6 +67,8 @@ int main()
 
 	setupTerminalOS();
 
+	initializeHistory();
+
 	while ( 1 )
 	{
 		directoryLength = printDirectory();
@@ -66,7 +80,8 @@ int main()
 		twoCommands = parseBuffer(buffer, firstCommand, secondCommand);
 
 		if ( processCommands(twoCommands, firstCommand, secondCommand) )
-			break;
+			if ( exitPrompt() )
+				break;
 		
 		free(buffer);
 	}   
@@ -92,6 +107,13 @@ void setupTerminalOS()
 void restoreTerminalOS()
 {
 	tcsetattr(0, TCSANOW, &origConfig);
+}
+
+void initializeHistory()
+{
+	int size = 0;
+	while( size != 5 )
+		history.commandHistory[size++] = (char *)calloc(1024, sizeof(char *));
 }
 
 int printDirectory()
@@ -128,6 +150,9 @@ int getInput(char *buffer, int directoryLength)
 
 	putchar('\n');
 	buffer[bufferIndex] = '\0';
+
+	addBufferToHistory(buffer);
+
 	return bufferIndex;
 }
 
@@ -198,8 +223,12 @@ void arrowCharacter(int arrowKey, char character, int bufferIndex, int *cursorPo
 	switch( arrowKey )
 	{
 		case UP:
+			if ( history.index < 4 )
+				printf(history.commandHistory[++history.index]);
 			break;
 		case DOWN:
+			if ( history.index > 0 )
+				printf(history.commandHistory[--history.index]);
 			break;
 		case RIGHT:
 			if ( bufferIndex > (*cursorPosition) )
@@ -225,6 +254,23 @@ void updateBuffer(char *buffer, char character, int *bufferIndex, int *cursorPos
 	putchar(character);
 	buffer[(*bufferIndex)++] = character;
 	(*cursorPosition)++;
+}
+
+void addBufferToHistory(char *buffer)
+{
+	if ( history.length > 4)
+		shiftBuffersAndAddNewBuffer(buffer);
+	else
+		strcpy(history.commandHistory[history.length++], buffer);
+}
+
+void shiftBuffersAndAddNewBuffer(char *buffer)
+{
+	strcpy(history.commandHistory[0], history.commandHistory[1]);
+	strcpy(history.commandHistory[1], history.commandHistory[2]);
+	strcpy(history.commandHistory[2], history.commandHistory[3]);
+	strcpy(history.commandHistory[3], history.commandHistory[4]);
+	strcpy(history.commandHistory[4], buffer);
 }
 
 bool parseBuffer(char *buffer, char **firstCommand, char **secondCommand)
@@ -262,6 +308,14 @@ bool processCommands(bool twoCommands, char **firstCommand, char **secondCommand
 		return true;
 	else if ( isChangeDirectoryCommand(firstCommand) )
 		changeDirectory(firstCommand);
+	else if ( strcmp(firstCommand[0], "print") == 0 )
+	{
+		printf("%s\n", history.commandHistory[0]);
+		printf("%s\n", history.commandHistory[1]);
+		printf("%s\n", history.commandHistory[2]);
+		printf("%s\n", history.commandHistory[3]);
+		printf("%s\n", history.commandHistory[4]);
+	}
 	else
 		executeCommands(twoCommands, firstCommand, secondCommand);
 
@@ -294,6 +348,17 @@ void executeCommands(bool twoCommands, char**firstCommand, char**secondCommand)
 	    childProcess(twoCommands, fileDescriptor, firstCommand);
 	else if ( pid > 0 )
 	    parentProcess(pid, twoCommands, fileDescriptor, secondCommand);
+}
+
+bool exitPrompt()
+{
+	printf("Are you sure you want to quit? (y/n): ");
+	bool quit = false;
+	char confirmation = getchar();
+	if( tolower(confirmation) == 'y' )
+		quit = true;
+	putchar('\n');
+	return quit;
 }
 
 int *createPipe()
@@ -351,7 +416,7 @@ void waitForChild(int pid)
 }
 
 // • Printing the prompt 									- done
-// • Executing commands from the user 						- done
+// • Executing commands from the user 						
 // • Implementing the quit command 							- done
 // • Implementing the cd command 							- done
 // • Implementing dir command 								- done
