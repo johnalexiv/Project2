@@ -12,30 +12,28 @@
 #include <stdbool.h>
 #include <termios.h>
 
-int printDirectory();
-int getInput(char *, int);
-bool isCommandCharacter(char);
-bool isArrowKey(char, int[]);
-int determineWhichArrowKey(char);
-void evaluateArrowKey(int[], char, int *, int);
-bool parseBuffer(char *, char **, char **);
-void executeCommands(bool, char**, char**);
 void setupTerminalOS();
 void restoreTerminalOS();
-void changeDirectory(char **);
-bool isChangeDirectoryCommand(char **);
-bool processCommands(char **, char **);
-bool isQuitCommand(char **);
-bool getInputFromUser(char **, char **);
-int *createPipe();
+int printDirectory();
+int getInput(char *, int);
+bool isCharacterBackspace(char);
+void backspaceCharacter(char *, int *, int *);
+bool isCharacterArrow(char, int*);
+int determineWhichArrowKey(char);
+void arrowCharacter(int, char, int, int *);
+void updateBuffer(char *, char, int *, int *);
+bool parseBuffer(char *, char **, char **);
 bool getCommands(char *, char **, char **);
-bool bufferIsValid(char *);
+bool processCommands(bool, char **, char **);
+bool isQuitCommand(char **);
+bool isChangeDirectoryCommand(char **);
+void changeDirectory(char **);
+void executeCommands(bool, char**, char**);
+int *createPipe();
 void childProcess(bool, int *, char **);
 void parentProcess(int, bool, int *, char **);
 void executeCommand(char **);
 void waitForChild(int);
-
-struct termios origConfig;
 
 enum ArrowKeys
 {
@@ -46,9 +44,10 @@ enum ArrowKeys
 	NUMOFARROWKEYS
 };
 
+struct termios origConfig;
+
 int main()
 {
-	int bufferLength;
 	int directoryLength;
 	char *firstCommand[100];
     char *secondCommand[100];
@@ -61,32 +60,16 @@ int main()
 		directoryLength = printDirectory();
 
 		char *buffer = (char *)calloc(256, sizeof(char));
-		bufferLength = getInput(buffer, directoryLength);
+		if ( !getInput(buffer, directoryLength) )
+			continue;
 
 		twoCommands = parseBuffer(buffer, firstCommand, secondCommand);
-		//twoCommands = getInputFromUser(firstCommand, secondCommand);
 
-		executeCommands(twoCommands, firstCommand, secondCommand);
+		if ( processCommands(twoCommands, firstCommand, secondCommand) )
+			break;
 		
-		// if ( processCommands(firstCommand, secondCommand) )
-		//  	break;
-
 		free(buffer);
 	}   
-
-    // char *firstCommand[100];
-    // char *secondCommand[100];
-
-    // bool twoCommands = getInputFromUser(firstCommand, secondCommand);
-    
-    // int *fileDescriptor = createPipe();
-    // int pid = fork();
-    // if ( pid == 0 )
-    //     childProcess(twoCommands, fileDescriptor, firstCommand);
-    // else if ( pid > 0 )
-    //     parentProcess(pid, twoCommands, fileDescriptor, secondCommand);
-    // else if ( pid < 0 )
-    //     perror(NULL);
 
 	restoreTerminalOS();
 
@@ -100,8 +83,8 @@ void setupTerminalOS()
 	struct termios newConfig = origConfig;
 
 	newConfig.c_lflag &= ~(ICANON | ECHO);
-	newConfig.c_cc[VMIN] = 2;
-	newConfig.c_cc[VTIME] = 1;
+	newConfig.c_cc[VMIN] = 1;
+	newConfig.c_cc[VTIME] = 0;
 
 	tcsetattr(0, TCSANOW, &newConfig);
 }
@@ -115,7 +98,7 @@ int printDirectory()
 {
     char *directory = (char *)malloc(100 * sizeof(char *));
 	getcwd(directory, 100);
-	printf("\n%s> ", directory);
+	printf("%s> ", directory);
 
 	int directoryLength = strlen(directory);
 
@@ -127,49 +110,56 @@ int printDirectory()
 int getInput(char *buffer, int directoryLength)
 {
 	int bufferIndex = 0;
-	int cursorPosition = directoryLength + 1;
+	int cursorPosition = 0;
+	int arrowKey;
 	char character;
-	int arrowKey[1];
+	
 	while ( character = getchar() )
 	{
-		cursorPosition++;
-		if ( isCommandCharacter(character) )
+		if ( character == '\n' )
 			break;
-		else if ( isArrowKey(character, arrowKey) )
-		{
-			evaluateArrowKey(arrowKey, character, &cursorPosition, directoryLength);
-			continue;
-		}
-		
-		putchar(character);
-		buffer[bufferIndex++] = character;
+		else if ( isCharacterBackspace(character) )
+			backspaceCharacter(buffer, &bufferIndex, &cursorPosition);
+		else if( isCharacterArrow(character, &arrowKey) )
+		 	arrowCharacter(arrowKey, buffer[cursorPosition], bufferIndex, &cursorPosition);
+		else
+			updateBuffer(buffer, character, &bufferIndex, &cursorPosition);
 	}
+
+	putchar('\n');
 	buffer[bufferIndex] = '\0';
 	return bufferIndex;
 }
 
-bool isCommandCharacter(char character)
+bool isCharacterBackspace(char character)
 {
-	bool isCommand;	
+	bool isBackspace = false;
 	switch ( character )
 	{
-		case '\n':
-			isCommand = true;
-			break;
 		case 127:
-			isCommand = true;
+			isBackspace = true;
 			break;
 		case 8:
-			isCommand = true;
+			isBackspace = true;
 			break;
 		default:
-			isCommand = false;
 			break;
 	}
-	return isCommand;
-}	
+	return isBackspace;
+}
 
-bool isArrowKey(char character, int arrowKey[])
+void backspaceCharacter(char *buffer, int *bufferIndex, int *cursorPosition)
+{
+	if ( (*cursorPosition) > 0 )
+	{
+		(*cursorPosition)--;
+		(*bufferIndex)--;
+		buffer[(*bufferIndex)] = ' ';
+		printf("\b \b");
+	}
+}
+
+bool isCharacterArrow(char character, int *arrowKey)
 {
 	char checkArrow = character;
 	if ( checkArrow == 27 )
@@ -178,7 +168,7 @@ bool isArrowKey(char character, int arrowKey[])
 		if ( checkArrow == 91 )
 		{
 			checkArrow = getchar();
-			arrowKey[0] = determineWhichArrowKey(checkArrow);
+			*arrowKey = determineWhichArrowKey(checkArrow);
 			return true;
 		}
 	}
@@ -203,23 +193,26 @@ int determineWhichArrowKey(char checkArrow)
 	return 0;
 }
 
-void evaluateArrowKey(int arrowKey[], char character, int *cursorPosition, int directoryLength)
+void arrowCharacter(int arrowKey, char character, int bufferIndex, int *cursorPosition)
 {
-	switch( arrowKey[0] )
+	switch( arrowKey )
 	{
 		case UP:
 			break;
 		case DOWN:
 			break;
 		case RIGHT:
-			putchar(character);
-			cursorPosition++;
+			if ( bufferIndex > (*cursorPosition) )
+			{
+				putchar(character);
+				(*cursorPosition)++;
+			}
 			break;
 		case LEFT:
-			if ( *cursorPosition > directoryLength + 1 )
+			if ( (*cursorPosition) > 0 )
 			{
 				putchar('\b');
-				cursorPosition--;
+				(*cursorPosition)--;
 			}
 			break;
 		default:
@@ -227,75 +220,16 @@ void evaluateArrowKey(int arrowKey[], char character, int *cursorPosition, int d
 	}
 }
 
+void updateBuffer(char *buffer, char character, int *bufferIndex, int *cursorPosition)
+{
+	putchar(character);
+	buffer[(*bufferIndex)++] = character;
+	(*cursorPosition)++;
+}
+
 bool parseBuffer(char *buffer, char **firstCommand, char **secondCommand)
 {
     return getCommands(buffer, firstCommand, secondCommand);
-}
-
-
-void executeCommands(bool twoCommands, char**firstCommand, char**secondCommand)
-{
-	int *fileDescriptor = createPipe();
-	int pid = fork();
-	if ( pid == 0 )
-	    childProcess(twoCommands, fileDescriptor, firstCommand);
-	else if ( pid > 0 )
-	    parentProcess(pid, twoCommands, fileDescriptor, secondCommand);
-}
-
-bool processCommands(char **firstCommand, char **secondCommand)
-{
-	if ( isQuitCommand(firstCommand) ) 
-		return true;
-	else if ( isChangeDirectoryCommand(firstCommand) )
-		changeDirectory(firstCommand);
-
-	return false;
-}
-
-bool isQuitCommand(char **command)
-{
-	return (strcmp(command[0], "quit") == 0);
-}
-
-bool isChangeDirectoryCommand(char **command)
-{
-	return (strcmp(command[0], "cd") == 0);
-}
-
-void changeDirectory(char **command)
-{
-	char *newDirectory = (char *)malloc(100 * sizeof(char *));
-	newDirectory = command[1];
-	if ( chdir(newDirectory) < 0 )
-		perror(NULL);
-}
-
-bool getInputFromUser(char **firstCommand, char **secondCommand)
-{
-    bool twoCommands;
-    char *buffer = (char *)calloc(256, sizeof(char));
-    if ( bufferIsValid(buffer) )
-    {
-        printf("No command was entered. \n");
-        exit(1);
-    }
-    else 
-    {
-        twoCommands = getCommands(buffer, firstCommand, secondCommand);
-    }
-
-    return twoCommands;
-}
-
-bool bufferIsValid(char *buffer)
-{
-    fgets(buffer, 256, stdin);
-    buffer[strlen(buffer) - 1] = '\0';
-    if ( buffer[0] == '\0' )
-        return true;
-    else 
-        return false;
 }
 
 bool getCommands(char *buffer, char **firstCommand, char **secondCommand)
@@ -320,6 +254,46 @@ bool getCommands(char *buffer, char **firstCommand, char **secondCommand)
     secondCommand[secondSize] = NULL;
 
     return twoCommands;
+}
+
+bool processCommands(bool twoCommands, char **firstCommand, char **secondCommand)
+{
+	if ( isQuitCommand(firstCommand) ) 
+		return true;
+	else if ( isChangeDirectoryCommand(firstCommand) )
+		changeDirectory(firstCommand);
+	else
+		executeCommands(twoCommands, firstCommand, secondCommand);
+
+	return false;
+}
+
+bool isQuitCommand(char **command)
+{
+	return (strcmp(command[0], "quit") == 0);
+}
+
+bool isChangeDirectoryCommand(char **command)
+{
+	return (strcmp(command[0], "cd") == 0);
+}
+
+void changeDirectory(char **command)
+{
+	char *newDirectory = (char *)malloc(100 * sizeof(char *));
+	newDirectory = command[1];
+	if ( chdir(newDirectory) < 0 )
+		perror(NULL);
+}
+
+void executeCommands(bool twoCommands, char**firstCommand, char**secondCommand)
+{
+	int *fileDescriptor = createPipe();
+	int pid = fork();
+	if ( pid == 0 )
+	    childProcess(twoCommands, fileDescriptor, firstCommand);
+	else if ( pid > 0 )
+	    parentProcess(pid, twoCommands, fileDescriptor, secondCommand);
 }
 
 int *createPipe()
@@ -376,25 +350,14 @@ void waitForChild(int pid)
     }
 }
 
-// Configure the input (termios) 
-// while not exited
-// 	print prompt
-// 	read input (break on up, down and \n) 
-// 	if broken on up or down
-// 		clear the current input
-// 		execute appropriate command to generate corresponding message 
-// 		print message
-// 	else
-// 		parse input into a command
-// 		if cd command
-// 			change the current working directory
-// 		else if exit command 
-// 			break
-// 		else
-// 			execute the command 
-// restore the input configuration (termios)
-
-
-
-
-
+// • Printing the prompt 									- done
+// • Executing commands from the user 						- done
+// • Implementing the quit command 							- done
+// • Implementing the cd command 							- done
+// • Implementing dir command 								- done
+// • Implementing left and right keys 						- done
+// • Properly implementing the delete and backspace keys 	- done
+// • Implementing pause 									- done
+// • Implementing history
+// • Implementing the pipe operator							- done
+// • Implementing custom command
