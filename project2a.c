@@ -20,9 +20,9 @@ int printDirectory();
 int getInput(char *, int);
 bool isCharacterBackspace(char);
 void backspaceCharacter(char *, int *, int *);
-bool isCharacterArrow(char, int*);
+bool isCharacterArrow(char, int *, bool *);
 int determineWhichArrowKey(char);
-void arrowCharacter(int, char, int, int *);
+void arrowCharacter(int, char *, int *, int *);
 void updateBuffer(char *, char, int *, int *);
 void addBufferToHistory(char *);
 void shiftBuffersAndAddNewBuffer(char *);
@@ -32,7 +32,7 @@ bool processCommands(bool, char **, char **);
 bool isQuitCommand(char **);
 bool isChangeDirectoryCommand(char **);
 void changeDirectory(char **);
-void executeCommands(bool, char**, char**);
+void executeCommands(bool, char **, char **);
 bool exitPrompt();
 int *createPipe();
 void childProcess(bool, int *, char **);
@@ -134,7 +134,9 @@ int getInput(char *buffer, int directoryLength)
 	int bufferIndex = 0;
 	int cursorPosition = 0;
 	int arrowKey;
+	bool isHistoryCommand = false;
 	char character;
+	history.index = 0;
 	
 	while ( character = getchar() )
 	{
@@ -142,8 +144,8 @@ int getInput(char *buffer, int directoryLength)
 			break;
 		else if ( isCharacterBackspace(character) )
 			backspaceCharacter(buffer, &bufferIndex, &cursorPosition);
-		else if( isCharacterArrow(character, &arrowKey) )
-		 	arrowCharacter(arrowKey, buffer[cursorPosition], bufferIndex, &cursorPosition);
+		else if( isCharacterArrow(character, &arrowKey, &isHistoryCommand) )
+		 	arrowCharacter(arrowKey, buffer, &bufferIndex, &cursorPosition);
 		else
 			updateBuffer(buffer, character, &bufferIndex, &cursorPosition);
 	}
@@ -184,7 +186,7 @@ void backspaceCharacter(char *buffer, int *bufferIndex, int *cursorPosition)
 	}
 }
 
-bool isCharacterArrow(char character, int *arrowKey)
+bool isCharacterArrow(char character, int *arrowKey, bool *isHistoryCommand)
 {
 	char checkArrow = character;
 	if ( checkArrow == 27 )
@@ -194,6 +196,8 @@ bool isCharacterArrow(char character, int *arrowKey)
 		{
 			checkArrow = getchar();
 			*arrowKey = determineWhichArrowKey(checkArrow);
+			if ( *arrowKey < 67 )
+				*isHistoryCommand = true;
 			return true;
 		}
 	}
@@ -218,22 +222,32 @@ int determineWhichArrowKey(char checkArrow)
 	return 0;
 }
 
-void arrowCharacter(int arrowKey, char character, int bufferIndex, int *cursorPosition)
+void arrowCharacter(int arrowKey, char *buffer, int *bufferIndex, int *cursorPosition)
 {
 	switch( arrowKey )
 	{
 		case UP:
 			if ( history.index < 4 )
-				printf(history.commandHistory[++history.index]);
+			{
+				int i;
+				for( i = 0; i < strlen(buffer); i++ )
+					backspaceCharacter(buffer, bufferIndex, cursorPosition);
+				buffer = history.commandHistory[++history.index];
+				*bufferIndex = strlen(buffer);
+				*cursorPosition = *bufferIndex;
+				printf(history.commandHistory[history.index]);
+			}
 			break;
 		case DOWN:
 			if ( history.index > 0 )
+			{
 				printf(history.commandHistory[--history.index]);
+			}
 			break;
 		case RIGHT:
-			if ( bufferIndex > (*cursorPosition) )
+			if ( *bufferIndex > (*cursorPosition) )
 			{
-				putchar(character);
+				putchar(buffer[(*cursorPosition)]);
 				(*cursorPosition)++;
 			}
 			break;
@@ -308,14 +322,6 @@ bool processCommands(bool twoCommands, char **firstCommand, char **secondCommand
 		return true;
 	else if ( isChangeDirectoryCommand(firstCommand) )
 		changeDirectory(firstCommand);
-	else if ( strcmp(firstCommand[0], "print") == 0 )
-	{
-		printf("%s\n", history.commandHistory[0]);
-		printf("%s\n", history.commandHistory[1]);
-		printf("%s\n", history.commandHistory[2]);
-		printf("%s\n", history.commandHistory[3]);
-		printf("%s\n", history.commandHistory[4]);
-	}
 	else
 		executeCommands(twoCommands, firstCommand, secondCommand);
 
@@ -342,12 +348,22 @@ void changeDirectory(char **command)
 
 void executeCommands(bool twoCommands, char**firstCommand, char**secondCommand)
 {
-	int *fileDescriptor = createPipe();
-	int pid = fork();
-	if ( pid == 0 )
-	    childProcess(twoCommands, fileDescriptor, firstCommand);
-	else if ( pid > 0 )
-	    parentProcess(pid, twoCommands, fileDescriptor, secondCommand);
+	int child;
+	int grandChild;
+	child = fork();
+	if ( child == 0 )
+	{
+		int *fileDescriptor = createPipe();
+		grandChild = fork();
+		if ( grandChild == 0 )
+			childProcess(twoCommands, fileDescriptor, firstCommand);
+		else if ( grandChild > 0 )
+			parentProcess(grandChild, twoCommands, fileDescriptor, secondCommand);
+	}
+	else if ( child > 0 )
+		waitForChild(child);
+	else
+		perror(NULL);
 }
 
 bool exitPrompt()
@@ -394,6 +410,7 @@ void parentProcess(int pid, bool twoCommands, int *fileDescriptor, char **second
         close(fileDescriptor[1]);
         executeCommand(secondCommand);
     }
+    exit(0);
 }
 
 void executeCommand(char **command)
@@ -416,7 +433,7 @@ void waitForChild(int pid)
 }
 
 // • Printing the prompt 									- done
-// • Executing commands from the user 						
+// • Executing commands from the user 						- done
 // • Implementing the quit command 							- done
 // • Implementing the cd command 							- done
 // • Implementing dir command 								- done
@@ -426,3 +443,8 @@ void waitForChild(int pid)
 // • Implementing history
 // • Implementing the pipe operator							- done
 // • Implementing custom command
+
+
+
+
+
