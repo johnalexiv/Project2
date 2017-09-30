@@ -30,261 +30,263 @@ bool parseBuffer(char *, char **, char **);
 bool getCommands(char *, char **, char **);
 bool processCommands(bool, char **, char **);
 bool isQuitCommand(char **);
+void quitCommand(bool *);
 bool isChangeDirectoryCommand(char **);
 void changeDirectory(char **);
+bool isMergeCommand(char **);
+void mergeCommand(char **);
+void mergeFiles(char *, char *, char *);
 void executeCommands(bool, char **, char **);
-bool exitPrompt();
 int *createPipe();
-void childProcess(bool, int *, char **);
-void parentProcess(int, bool, int *, char **);
+void grandChildProcess(bool, int *, char **);
+void childProcess(int, bool, int *, char **);
 void executeCommand(char **);
 void waitForChild(int);
 
 struct History
 {
-	int index;
-	int length;
-	char *commandHistory[5];
+    int index;
+    int length;
+    char *commandHistory[5];
 }history = { 0, 0 };
 
 enum ArrowKeys
 {
-	UP,
-	DOWN,
-	RIGHT,
-	LEFT,
-	NUMOFARROWKEYS
+    UP,
+    DOWN,
+    RIGHT,
+    LEFT,
+    NUMOFARROWKEYS
 };
 
 struct termios origConfig;
 
 int main()
 {
-	int directoryLength;
-	char *firstCommand[100];
+    int directoryLength;
+    char *firstCommand[100];
     char *secondCommand[100];
-	bool twoCommands;
+    bool twoCommands;
 
-	setupTerminalOS();
+    setupTerminalOS();
 
-	initializeHistory();
+    initializeHistory();
 
-	while ( 1 )
-	{
-		directoryLength = printDirectory();
+    while ( 1 )
+    {
+        directoryLength = printDirectory();
 
-		char *buffer = (char *)calloc(256, sizeof(char));
-		if ( !getInput(buffer, directoryLength) )
-			continue;
+        char *buffer = (char *)calloc(256, sizeof(char));
+        if ( !getInput(buffer, directoryLength) )
+            continue;
 
-		twoCommands = parseBuffer(buffer, firstCommand, secondCommand);
+        twoCommands = parseBuffer(buffer, firstCommand, secondCommand);
 
-		if ( processCommands(twoCommands, firstCommand, secondCommand) )
-			if ( exitPrompt() )
-				break;
-		
-		free(buffer);
-	}   
+        if ( processCommands(twoCommands, firstCommand, secondCommand) )
+            break;
 
-	restoreTerminalOS();
+        free(buffer);
+    }   
+
+    restoreTerminalOS();
 
     return 0;
 }
 
 void setupTerminalOS()
 {
-	tcgetattr(0, &origConfig);
+    tcgetattr(0, &origConfig);
 
-	struct termios newConfig = origConfig;
+    struct termios newConfig = origConfig;
 
-	newConfig.c_lflag &= ~(ICANON | ECHO);
-	newConfig.c_cc[VMIN] = 1;
-	newConfig.c_cc[VTIME] = 0;
+    newConfig.c_lflag &= ~(ICANON | ECHO);
+    newConfig.c_cc[VMIN] = 1;
+    newConfig.c_cc[VTIME] = 0;
 
-	tcsetattr(0, TCSANOW, &newConfig);
+    tcsetattr(0, TCSANOW, &newConfig);
 }
 
 void restoreTerminalOS()
 {
-	tcsetattr(0, TCSANOW, &origConfig);
+    tcsetattr(0, TCSANOW, &origConfig);
 }
 
 void initializeHistory()
 {
-	int size = 0;
-	while( size != 5 )
-		history.commandHistory[size++] = (char *)calloc(1024, sizeof(char *));
+    int size = 0;
+    while( size != 5 )
+        history.commandHistory[size++] = (char *)calloc(1024, sizeof(char *));
 }
 
 int printDirectory()
 {
     char *directory = (char *)malloc(100 * sizeof(char *));
-	getcwd(directory, 100);
-	printf("%s> ", directory);
+    getcwd(directory, 100);
+    printf("%s> ", directory);
 
-	int directoryLength = strlen(directory);
+    int directoryLength = strlen(directory);
 
-	free(directory);
+    free(directory);
 
-	return directoryLength;
+    return directoryLength;
 }
 
 int getInput(char *buffer, int directoryLength)
 {
-	int bufferIndex = 0;
-	int cursorPosition = 0;
-	int arrowKey;
-	bool isHistoryCommand = false;
-	char character;
-	history.index = 0;
-	
-	while ( character = getchar() )
-	{
-		if ( character == '\n' )
-			break;
-		else if ( isCharacterBackspace(character) )
-			backspaceCharacter(buffer, &bufferIndex, &cursorPosition);
-		else if( isCharacterArrow(character, &arrowKey, &isHistoryCommand) )
-		 	arrowCharacter(arrowKey, buffer, &bufferIndex, &cursorPosition);
-		else
-			updateBuffer(buffer, character, &bufferIndex, &cursorPosition);
-	}
+    int bufferIndex = 0;
+    int cursorPosition = 0;
+    int arrowKey;
+    bool isHistoryCommand = false;
+    char character;
+    history.index = 0;
 
-	putchar('\n');
-	buffer[bufferIndex] = '\0';
+    while ( character = getchar() )
+    {
+        if ( character == '\n' )
+            break;
+        else if ( isCharacterBackspace(character) )
+            backspaceCharacter(buffer, &bufferIndex, &cursorPosition);
+        else if( isCharacterArrow(character, &arrowKey, &isHistoryCommand) )
+            arrowCharacter(arrowKey, buffer, &bufferIndex, &cursorPosition);
+        else
+            updateBuffer(buffer, character, &bufferIndex, &cursorPosition);
+    }
 
-	addBufferToHistory(buffer);
+    putchar('\n');
+    buffer[bufferIndex] = '\0';
 
-	return bufferIndex;
+    addBufferToHistory(buffer);
+
+    return bufferIndex;
 }
 
 bool isCharacterBackspace(char character)
 {
-	bool isBackspace = false;
-	switch ( character )
-	{
-		case 127:
-			isBackspace = true;
-			break;
-		case 8:
-			isBackspace = true;
-			break;
-		default:
-			break;
-	}
-	return isBackspace;
+    bool isBackspace = false;
+    switch ( character )
+    {
+    case 127:
+        isBackspace = true;
+        break;
+    case 8:
+        isBackspace = true;
+        break;
+    default:
+        break;
+    }
+    return isBackspace;
 }
 
 void backspaceCharacter(char *buffer, int *bufferIndex, int *cursorPosition)
 {
-	if ( (*cursorPosition) > 0 )
-	{
-		(*cursorPosition)--;
-		(*bufferIndex)--;
-		buffer[(*bufferIndex)] = ' ';
-		printf("\b \b");
-	}
+    if ( (*cursorPosition) > 0 )
+    {
+        (*cursorPosition)--;
+        (*bufferIndex)--;
+        buffer[(*bufferIndex)] = ' ';
+        printf("\b \b");
+    }
 }
 
 bool isCharacterArrow(char character, int *arrowKey, bool *isHistoryCommand)
 {
-	char checkArrow = character;
-	if ( checkArrow == 27 )
-	{
-		checkArrow = getchar();
-		if ( checkArrow == 91 )
-		{
-			checkArrow = getchar();
-			*arrowKey = determineWhichArrowKey(checkArrow);
-			if ( *arrowKey < 67 )
-				*isHistoryCommand = true;
-			return true;
-		}
-	}
-	return false;
+    char checkArrow = character;
+    if ( checkArrow == 27 )
+    {
+        checkArrow = getchar();
+        if ( checkArrow == 91 )
+        {
+            checkArrow = getchar();
+            *arrowKey = determineWhichArrowKey(checkArrow);
+            if ( *arrowKey < 67 )
+                *isHistoryCommand = true;
+            return true;
+        }
+    }
+    return false;
 }
 
 int determineWhichArrowKey(char checkArrow)
 {
-	switch( checkArrow )
-	{
-		case 65:
-			return UP;
-		case 66:
-			return DOWN;
-		case 67:
-			return RIGHT;
-		case 68:
-			return LEFT;
-		default:
-			break;
-	}
-	return 0;
+    switch( checkArrow )
+    {
+    case 65:
+        return UP;
+    case 66:
+        return DOWN;
+    case 67:
+        return RIGHT;
+    case 68:
+        return LEFT;
+    default:
+        break;
+    }
+    return 0;
 }
 
 void arrowCharacter(int arrowKey, char *buffer, int *bufferIndex, int *cursorPosition)
 {
-	switch( arrowKey )
-	{
-		case UP:
-			if ( history.index < 4 )
-			{
-				int i;
-				for( i = 0; i < strlen(buffer); i++ )
-					backspaceCharacter(buffer, bufferIndex, cursorPosition);
-				buffer = history.commandHistory[++history.index];
-				*bufferIndex = strlen(buffer);
-				*cursorPosition = *bufferIndex;
-				printf(history.commandHistory[history.index]);
-			}
-			break;
-		case DOWN:
-			if ( history.index > 0 )
-			{
-				printf(history.commandHistory[--history.index]);
-			}
-			break;
-		case RIGHT:
-			if ( *bufferIndex > (*cursorPosition) )
-			{
-				putchar(buffer[(*cursorPosition)]);
-				(*cursorPosition)++;
-			}
-			break;
-		case LEFT:
-			if ( (*cursorPosition) > 0 )
-			{
-				putchar('\b');
-				(*cursorPosition)--;
-			}
-			break;
-		default:
-			break;
-	}
+    switch( arrowKey )
+    {
+    case UP:
+        if ( history.index < 4 )
+        {
+            int i;
+            for( i = 0; i < strlen(buffer); i++ )
+                backspaceCharacter(buffer, bufferIndex, cursorPosition);
+            buffer = history.commandHistory[++history.index];
+            *bufferIndex = strlen(buffer);
+            *cursorPosition = *bufferIndex;
+            printf(history.commandHistory[history.index]);
+        }
+        break;
+    case DOWN:
+        if ( history.index > 0 )
+        {
+            printf(history.commandHistory[--history.index]);
+        }
+        break;
+    case RIGHT:
+        if ( *bufferIndex > (*cursorPosition) )
+        {
+            putchar(buffer[(*cursorPosition)]);
+            (*cursorPosition)++;
+        }
+        break;
+    case LEFT:
+        if ( (*cursorPosition) > 0 )
+        {
+            putchar('\b');
+            (*cursorPosition)--;
+        }
+        break;
+    default:
+        break;
+    }
 }
 
 void updateBuffer(char *buffer, char character, int *bufferIndex, int *cursorPosition)
 {
-	putchar(character);
-	buffer[(*bufferIndex)++] = character;
-	(*cursorPosition)++;
+    putchar(character);
+    buffer[(*bufferIndex)++] = character;
+    (*cursorPosition)++;
 }
 
 void addBufferToHistory(char *buffer)
 {
-	if ( history.length > 4)
-		shiftBuffersAndAddNewBuffer(buffer);
-	else
-		strcpy(history.commandHistory[history.length++], buffer);
+    if ( history.length > 4)
+        shiftBuffersAndAddNewBuffer(buffer);
+    else
+        strcpy(history.commandHistory[history.length++], buffer);
 }
 
 void shiftBuffersAndAddNewBuffer(char *buffer)
 {
-	strcpy(history.commandHistory[0], history.commandHistory[1]);
-	strcpy(history.commandHistory[1], history.commandHistory[2]);
-	strcpy(history.commandHistory[2], history.commandHistory[3]);
-	strcpy(history.commandHistory[3], history.commandHistory[4]);
-	strcpy(history.commandHistory[4], buffer);
+    strcpy(history.commandHistory[0], history.commandHistory[1]);
+    strcpy(history.commandHistory[1], history.commandHistory[2]);
+    strcpy(history.commandHistory[2], history.commandHistory[3]);
+    strcpy(history.commandHistory[3], history.commandHistory[4]);
+    strcpy(history.commandHistory[4], buffer);
 }
 
 bool parseBuffer(char *buffer, char **firstCommand, char **secondCommand)
@@ -318,63 +320,84 @@ bool getCommands(char *buffer, char **firstCommand, char **secondCommand)
 
 bool processCommands(bool twoCommands, char **firstCommand, char **secondCommand)
 {
-	if ( isQuitCommand(firstCommand) ) 
-		return true;
-	else if ( isChangeDirectoryCommand(firstCommand) )
-		changeDirectory(firstCommand);
-	else
-		executeCommands(twoCommands, firstCommand, secondCommand);
+    bool quit = false;
+    if ( isQuitCommand(firstCommand) ) 
+        quitCommand(&quit);
+    else if ( isChangeDirectoryCommand(firstCommand) )
+        changeDirectory(firstCommand);
+    else if ( isMergeCommand(firstCommand) )
+        mergeCommand(firstCommand);
+    else
+        executeCommands(twoCommands, firstCommand, secondCommand);
 
-	return false;
+    return quit;
 }
 
 bool isQuitCommand(char **command)
 {
-	return (strcmp(command[0], "quit") == 0);
+    return (strcmp(command[0], "quit") == 0);
+}
+
+void quitCommand(bool *quit)
+{
+    printf("Are you sure you want to quit? (y/n): ");
+    if( tolower(getchar()) == 'y' )
+        *quit = true;
+    putchar('\n');
 }
 
 bool isChangeDirectoryCommand(char **command)
 {
-	return (strcmp(command[0], "cd") == 0);
+    return (strcmp(command[0], "cd") == 0);
 }
 
 void changeDirectory(char **command)
 {
-	char *newDirectory = (char *)malloc(100 * sizeof(char *));
-	newDirectory = command[1];
-	if ( chdir(newDirectory) < 0 )
-		perror(NULL);
+    char *newDirectory = (char *)malloc(100 * sizeof(char *));
+    newDirectory = command[1];
+    if ( chdir(newDirectory) < 0 )
+        perror(NULL);
+}
+
+bool isMergeCommand(char **command)
+{
+    if ( strcmp(command[0], "merge") == 0 )
+        if ( strcmp(command[3], ">") == 0 )
+            return true;
+    return false;
+}
+
+void mergeCommand(char **command)
+{
+    char *firstFile = command[1];
+    char *secondFile = command[2];
+    char *mergeFile = command[4];
+    mergeFiles(firstFile, secondFile, mergeFile);
+}
+
+void mergeFiles(char *firstFile, char *secondFile, char *mergeFile)
+{
+
 }
 
 void executeCommands(bool twoCommands, char**firstCommand, char**secondCommand)
 {
-	int child;
-	int grandChild;
-	child = fork();
-	if ( child == 0 )
-	{
-		int *fileDescriptor = createPipe();
-		grandChild = fork();
-		if ( grandChild == 0 )
-			childProcess(twoCommands, fileDescriptor, firstCommand);
-		else if ( grandChild > 0 )
-			parentProcess(grandChild, twoCommands, fileDescriptor, secondCommand);
-	}
-	else if ( child > 0 )
-		waitForChild(child);
-	else
-		perror(NULL);
-}
-
-bool exitPrompt()
-{
-	printf("Are you sure you want to quit? (y/n): ");
-	bool quit = false;
-	char confirmation = getchar();
-	if( tolower(confirmation) == 'y' )
-		quit = true;
-	putchar('\n');
-	return quit;
+    int child;
+    int grandChild;
+    child = fork();
+    if ( child == 0 )
+    {
+        int *fileDescriptor = createPipe();
+        grandChild = fork();
+        if ( grandChild == 0 )
+            grandChildProcess(twoCommands, fileDescriptor, firstCommand);
+        else if ( grandChild > 0 )
+            childProcess(grandChild, twoCommands, fileDescriptor, secondCommand);
+    }
+    else if ( child > 0 )
+        waitForChild(child);
+    else
+        perror(NULL);
 }
 
 int *createPipe()
@@ -388,7 +411,7 @@ int *createPipe()
     return fileDescriptor;
 }
 
-void childProcess(bool twoCommands, int *fileDescriptor, char **firstCommand)
+void grandChildProcess(bool twoCommands, int *fileDescriptor, char **firstCommand)
 {
     if ( twoCommands )
     {
@@ -400,7 +423,7 @@ void childProcess(bool twoCommands, int *fileDescriptor, char **firstCommand)
     exit(0);
 }
 
-void parentProcess(int pid, bool twoCommands, int *fileDescriptor, char **secondCommand)
+void childProcess(int pid, bool twoCommands, int *fileDescriptor, char **secondCommand)
 {
     waitForChild(pid);
     if( twoCommands )
