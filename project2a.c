@@ -35,7 +35,10 @@ bool isChangeDirectoryCommand(char **);
 void changeDirectory(char **);
 bool isMergeCommand(char **);
 void mergeCommand(char **);
-void mergeFiles(char *, char *, char *);
+void mergeFiles(char **, char *);
+void childMergeProcess(char **, char *);
+bool isPauseCommand(char **);
+void pauseCommand();
 void executeCommands(bool, char **, char **);
 int *createPipe();
 void grandChildProcess(bool, int *, char **);
@@ -327,6 +330,8 @@ bool processCommands(bool twoCommands, char **firstCommand, char **secondCommand
         changeDirectory(firstCommand);
     else if ( isMergeCommand(firstCommand) )
         mergeCommand(firstCommand);
+    else if ( isPauseCommand(firstCommand) )
+        pauseCommand();
     else
         executeCommands(twoCommands, firstCommand, secondCommand);
 
@@ -369,15 +374,44 @@ bool isMergeCommand(char **command)
 
 void mergeCommand(char **command)
 {
-    char *firstFile = command[1];
-    char *secondFile = command[2];
+    char *firstCommand[100];
+    firstCommand[0] = "cat";
+    firstCommand[1] = command[1];
+    firstCommand[2] = command[2];
+    firstCommand[3] = NULL;
     char *mergeFile = command[4];
-    mergeFiles(firstFile, secondFile, mergeFile);
+    mergeFiles(firstCommand, mergeFile);
 }
 
-void mergeFiles(char *firstFile, char *secondFile, char *mergeFile)
+void mergeFiles(char **firstCommand, char *mergeFile)
 {
+    int child = fork();
+    if ( child == 0 )
+        childMergeProcess(firstCommand, mergeFile);
+    else if ( child > 0 )
+        waitForChild(child);
+    else 
+        perror(NULL);
+}
 
+void childMergeProcess(char **command, char *mergeFile)
+{
+    FILE *outFile = fopen(mergeFile, "w");
+    int fileDescriptor = fileno(outFile);
+    close(1);
+    dup(fileDescriptor);
+    executeCommand(command);
+    exit(0);
+}
+
+bool isPauseCommand(char **command)
+{
+    return (strcmp(command[0], "pause") == 0);
+}
+
+void pauseCommand()
+{
+    while(getchar() != '\n');
 }
 
 void executeCommands(bool twoCommands, char**firstCommand, char**secondCommand)
@@ -465,7 +499,7 @@ void waitForChild(int pid)
 // • Implementing pause 									- done
 // • Implementing history
 // • Implementing the pipe operator							- done
-// • Implementing custom command
+// • Implementing custom command                            - done
 
 
 
