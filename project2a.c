@@ -16,11 +16,11 @@
 void setupTerminalOS();
 void restoreTerminalOS();
 void initializeHistory();
-int printDirectory();
-int getInput(char *, int);
+void printDirectory();
+int getInput(char *);
 bool isCharacterBackspace(char);
 void backspaceCharacter(char *, int *, int *);
-bool isCharacterArrow(char, int *, bool *);
+bool isCharacterArrow(char, int *);
 int determineWhichArrowKey(char);
 void arrowCharacter(int, char *, int *, int *);
 void upArrow(char *, int *, int *);
@@ -69,7 +69,6 @@ struct termios origConfig;
 
 int main()
 {
-    int directoryLength;
     char *firstCommand[100];
     char *secondCommand[100];
     bool twoCommands;
@@ -80,10 +79,10 @@ int main()
 
     while ( 1 )
     {
-        directoryLength = printDirectory();
+        printDirectory();
 
         char *buffer = (char *)calloc(256, sizeof(char));
-        if ( !getInput(buffer, directoryLength) )
+        if ( !getInput(buffer) )
             continue;
 
         twoCommands = parseBuffer(buffer, firstCommand, secondCommand);
@@ -124,28 +123,22 @@ void initializeHistory()
         history.command[size++] = (char *)calloc(1024, sizeof(char *));
 }
 
-int printDirectory()
+void printDirectory()
 {
     char *directory = (char *)malloc(100 * sizeof(char *));
     getcwd(directory, 100);
     printf("%s> ", directory);
 
-    int directoryLength = strlen(directory);
-
     free(directory);
-
-    return directoryLength;
 }
 
-int getInput(char *buffer, int directoryLength)
+int getInput(char *buffer)
 {
     int bufferIndex = 0;
     int cursorPosition = 0;
     int arrowKey;
-    bool isHistoryCommand = false;
     char character;
     history.index = 0;
-    char *tempBuffer = (char *)calloc(256, sizeof(char *));
 
     while ( character = getchar() )
     {
@@ -153,7 +146,7 @@ int getInput(char *buffer, int directoryLength)
             break;
         else if ( isCharacterBackspace(character) )
             backspaceCharacter(buffer, &bufferIndex, &cursorPosition);
-        else if( isCharacterArrow(character, &arrowKey, &isHistoryCommand) )
+        else if( isCharacterArrow(character, &arrowKey) )
             arrowCharacter(arrowKey, buffer, &bufferIndex, &cursorPosition);
         else
             updateBuffer(buffer, character, &bufferIndex, &cursorPosition);
@@ -195,7 +188,7 @@ void backspaceCharacter(char *buffer, int *bufferIndex, int *cursorPosition)
     }
 }
 
-bool isCharacterArrow(char character, int *arrowKey, bool *isHistoryCommand)
+bool isCharacterArrow(char character, int *arrowKey)
 {
     char checkArrow = character;
     if ( checkArrow == 27 )
@@ -205,8 +198,6 @@ bool isCharacterArrow(char character, int *arrowKey, bool *isHistoryCommand)
         {
             checkArrow = getchar();
             *arrowKey = determineWhichArrowKey(checkArrow);
-            if ( *arrowKey < 67 )
-                *isHistoryCommand = true;
             return true;
         }
     }
@@ -228,7 +219,7 @@ int determineWhichArrowKey(char checkArrow)
     default:
         break;
     }
-    return 0;
+    return -1;
 }
 
 void arrowCharacter(int arrowKey, char *buffer, int *bufferIndex, int *cursorPosition)
