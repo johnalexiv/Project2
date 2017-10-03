@@ -302,13 +302,13 @@ void updateBuffer(char *buffer, char character, int *bufferIndex, int *cursorPos
 void addBufferToHistory(char *buffer)
 {
     int i;
-    for ( i = history.length; i > 1; i-- )
+    for ( i = history.length; i > 0; i-- )
     {
         strcpy(history.command[i], history.command[i - 1]);
     }
     if ( history.length < 5 )
         history.length++;
-    strcpy(history.command[1], buffer);  
+    strcpy(history.command[1], buffer); 
 }
 
 bool parseBuffer(char *buffer, char **firstCommand, char **secondCommand)
